@@ -1,0 +1,131 @@
+/*
+f.	As a runner, I want to know when is the best time and place to run. 
+For each month, provide the hour (e.g. 7am, 5pm, etc) and city that is the best time to run. 
+The best time and place to run will be defined as 
+
+the time where the temperature is as close to 50 as possible. 
+
+For each month, you are averaging all temperatures with the same city and same hour and checking how far that average is from 50 degrees.
+ 
+If there is a tie, a tiebreaker will be the least windy hour (i.e. the windspeed column) on average. 
+If there is still a tie, both hours and cities are reported.
+*/
+
+//Define schema
+case class OshkoshWeather(
+Year: Integer,
+Month: Integer,
+Day: Integer,
+TimeCST: String,
+TemperatureF: String,
+`Dew PointF`: String,
+Humidity: String,
+`Sea Level PressureIN`: String,
+VisibilityMPH: String,
+`Wind Direction`: String,
+`Wind SpeedMPH`: String,
+`Gust SpeedMPH`: String,
+PrecipitationIn: String,
+Events: String,
+Conditions: String,
+WindDirDegrees: String)
+
+case class IowaCityWeather(
+Year: Integer,
+Month: Integer,
+Day: Integer,
+TimeCST: String,
+TemperatureF: String,
+`Dew PointF`: String,
+Humidity: String,
+`Sea Level PressureIN`: String,
+VisibilityMPH: String,
+`Wind Direction`: String,
+`Wind SpeedMPH`: String,
+`Gust SpeedMPH`: String,
+PrecipitationIn: String,
+Events: String,
+Conditions: String,
+WindDirDegrees: String)
+
+{
+import org.apache.spark.sql.functions.{when, _}
+import org.apache.spark.sql._
+
+///////////////
+/// OSHKOSH ///
+///////////////
+
+//Load oshkosh weather data into a data set.
+val oshkosh_ds: Dataset[OshkoshWeather] = spark.sqlContext.read.option("header", "true").option("delimiter", ",").option("inferSchema", "true").csv("/user/maria_dev/final/Oshkosh/OshkoshWeather.csv").as[OshkoshWeather]
+
+//Filter data
+val oshkosh_raw = oshkosh_ds.select($"month",concat(substring_index($"TimeCST",":",1),substring_index($"TimeCST"," ",-1)).as("hour"),concat($"month",lit("_"),substring_index($"TimeCST",":",1),substring_index($"TimeCST"," ",-1)).as("month_hour"),$"TemperatureF",$"`Wind speedMPH`").filter("TemperatureF is not null")
+
+//Set windspeed calm = 0.0
+val oshkosh_raw_cor = oshkosh_raw.withColumn("windspeed",when($"`Wind SpeedMPH`" === "Calm",0.0).otherwise($"`Wind SpeedMPH`")).drop($"`Wind speedMPH`")
+
+//group by monthhour to find average hourly temp and wind speed
+val oshkosh_avgtemp = oshkosh_raw_cor.where(!($"TemperatureF" === "-9999")).groupBy("month_hour").agg(avg($"TemperatureF").as("avg_hrly_temp")).withColumnRenamed("month_hour","month_hour_avg")
+val oshkosh_avgwind = oshkosh_raw_cor.where(!($"windspeed" === "-9999")).groupBy("month_hour").agg(avg($"windspeed").as("avg_oshkosh_wndspd")).withColumnRenamed("month_hour","month_hour_avg_ws")
+
+//Rejoin with original data - remove duplicate months and hours.
+val oshkosh_temps = oshkosh_raw_cor.join(oshkosh_avgtemp, oshkosh_raw_cor("month_hour") === oshkosh_avgtemp("month_hour_avg")).drop("month_hour_avg").drop("TemperatureF")
+val oshkosh_temps_wind = oshkosh_temps.join(oshkosh_avgwind, oshkosh_temps("month_hour") === oshkosh_avgwind("month_hour_avg_ws")).drop("month_hour_avg_ws").drop("windspeed")
+val oshkosh_temps_wind_dist = oshkosh_temps_wind.dropDuplicates("month_hour")
+
+//Calculate Delta from 50 degrees..
+val oshkosh_delta = oshkosh_temps_wind_dist.withColumn("raw_delta",$"avg_hrly_temp" - 50).withColumn("oshkosh_delta",abs(col("raw_delta"))).drop("raw_delta").drop("avg_hrly_temp")
+
+//Find min delta per month
+val oshkosh_month_min = oshkosh_delta.groupBy($"month").agg(min("oshkosh_delta").as("min_oshkosh_delta")).withColumnRenamed("month","min_month")
+
+//rejoin with previous data
+val oshkosh_min_deltas = oshkosh_delta.join(oshkosh_month_min,oshkosh_delta("oshkosh_delta") === oshkosh_month_min("min_oshkosh_delta") && oshkosh_delta("month") === oshkosh_month_min("min_month")).drop("month_hour").drop("oshkosh_delta").drop("min_month")
+
+////////////////
+/// IOWACITY ///
+////////////////
+
+//Load iowacity weather data into a data set.
+val iowacity_ds: Dataset[IowaCityWeather] = spark.sqlContext.read.option("header", "true").option("delimiter", ",").option("inferSchema", "true").csv("/user/maria_dev/final/IowaCity/IowaCityWeather.csv").as[IowaCityWeather]
+
+//Filter data
+val iowacity_raw = iowacity_ds.select($"month",concat(substring_index($"TimeCST",":",1),substring_index($"TimeCST"," ",-1)).as("hour"),concat($"month",lit("_"),substring_index($"TimeCST",":",1),substring_index($"TimeCST"," ",-1)).as("month_hour"),$"TemperatureF",$"`Wind speedMPH`").filter("TemperatureF is not null")
+
+//Set windspeed calm = 0.0
+val iowacity_raw_cor = iowacity_raw.withColumn("windspeed",when($"`Wind SpeedMPH`" === "Calm",0.0).otherwise($"`Wind SpeedMPH`")).drop($"`Wind speedMPH`")
+
+//group by monthhour to find average hourly temp and wind speed
+val iowacity_avgtemp = iowacity_raw_cor.where(!($"TemperatureF" === "-9999")).groupBy("month_hour").agg(avg($"TemperatureF").as("avg_hrly_temp")).withColumnRenamed("month_hour","month_hour_avg")
+val iowacity_avgwind = iowacity_raw_cor.where(!($"windspeed" === "-9999")).groupBy("month_hour").agg(avg($"windspeed").as("avg_iowacity_wndspd")).withColumnRenamed("month_hour","month_hour_avg_ws")
+
+//Rejoin with original data - remove duplicate months and hours.
+val iowacity_temps = iowacity_raw_cor.join(iowacity_avgtemp, iowacity_raw_cor("month_hour") === iowacity_avgtemp("month_hour_avg")).drop("month_hour_avg").drop("TemperatureF")
+val iowacity_temps_wind = iowacity_temps.join(iowacity_avgwind, iowacity_temps("month_hour") === iowacity_avgwind("month_hour_avg_ws")).drop("month_hour_avg_ws").drop("windspeed")
+val iowacity_temps_wind_dist = iowacity_temps_wind.dropDuplicates("month_hour")
+
+//Calculate Delta from 50 degrees..
+val iowacity_delta = iowacity_temps_wind_dist.withColumn("raw_delta",$"avg_hrly_temp" - 50).withColumn("iowacity_delta",abs(col("raw_delta"))).drop("raw_delta").drop("avg_hrly_temp")
+
+//Find min delta per month
+val iowacity_month_min = iowacity_delta.groupBy($"month").agg(min("iowacity_delta").as("min_iowacity_delta")).withColumnRenamed("month","min_month")
+
+//rejoin with previous data
+val iowacity_min_deltas = iowacity_delta.join(iowacity_month_min,iowacity_delta("iowacity_delta") === iowacity_month_min("min_iowacity_delta") && iowacity_delta("month") === iowacity_month_min("min_month")).drop("month_hour").drop("iowacity_delta").drop("min_month").withColumnRenamed("month","icmonth").withColumnRenamed("hour","ichour")
+
+///////////////////////
+/// CITIES COMBINED ///
+///////////////////////
+
+val both_cities = iowacity_min_deltas.join(oshkosh_min_deltas,iowacity_min_deltas("icmonth") === oshkosh_min_deltas("month"))
+//both_cities.show(false)
+
+val specify_city = both_cities.withColumn("Best_City",when($"min_iowacity_delta" < $"min_oshkosh_delta","Iowa City").otherwise("Oshkosh"))
+val specify_time = specify_city.withColumn("Best_Time",when($"min_iowacity_delta" < $"min_oshkosh_delta",$"ichour").otherwise($"hour"))
+
+val answer = specify_time.select($"month",$"Best_City",$"Best_Time").sort($"month")
+answer.show(false)
+    
+    
+}

@@ -1,0 +1,64 @@
+DROP TABLE IF EXISTS oshkoshweather;
+DROP VIEW IF EXISTS oshkoshbasedata;
+DROP TABLE IF EXISTS iowacityweather;
+DROP VIEW IF EXISTS iowacitybasedata;
+
+CREATE EXTERNAL TABLE oshkoshweather (Year INT, Month INT, Day INT, TimeCST STRING, Temperaturef STRING, Dew_PointF STRING,
+Humidity STRING, Sea_Level_PressureIN STRING, VisibilityMPH STRING, Wind_Direction STRING, Wind_SpeedMPH STRING,
+Gust_SpeedMPH STRING, PrecipitationIn STRING, Events STRING, Conditions STRING, WindDirDegrees STRING) 
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+LOCATION '/user/maria_dev/final/Oshkosh';
+
+CREATE EXTERNAL TABLE iowacityweather (Year INT, Month INT, Day INT, TimeCST STRING, Temperaturef STRING, Dew_PointF STRING,
+Humidity STRING, Sea_Level_PressureIN STRING, VisibilityMPH STRING, Wind_Direction STRING, Wind_SpeedMPH STRING,
+Gust_SpeedMPH STRING, PrecipitationIn STRING, Events STRING, Conditions STRING, WindDirDegrees STRING) 
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+LOCATION '/user/maria_dev/final/IowaCity';
+
+CREATE VIEW oshkoshbasedata AS 
+	SELECT Month, CAST(TemperatureF AS float) as TempF 
+	FROM OshkoshWeather
+	where TemperatureF IS NOT NULL
+	AND TemperatureF != '-9999';
+	
+CREATE VIEW iowacitybasedata AS 
+	SELECT Month, CAST(TemperatureF AS float) as TempF 
+	FROM IowaCityWeather
+	where TemperatureF IS NOT NULL
+	AND TemperatureF != '-9999';	
+
+SELECT oshkoshtemps.season as season, round(oshkoshtemps.Ave_Temp_Oshkosh,2) as Ave_Temp_Oshkosh,
+round(iowacitytemps.Ave_Temp_IowaCity,2) as Ave_Temp_IowaCity, round(Ave_Temp_Oshkosh-Ave_Temp_IowaCity,2) as Temp_Difference
+FROM(
+  SELECT AVG(oshkosh_seasondata.TempF) as Ave_Temp_Oshkosh, oshkosh_seasondata.season as season 
+  from(
+	SELECT 
+      CASE 
+        WHEN Month > 11 OR Month < 3 THEN 'Winter' 
+		WHEN Month > 2 AND Month < 6 THEN 'Spring'
+		WHEN Month > 5 AND Month < 9 THEN 'Summer'
+		WHEN Month > 8 AND Month < 12 THEN 'Fall'
+		ELSE 'NA'
+      END as season, TempF
+	FROM oshkoshbasedata
+	where TempF is not null) 
+  as oshkosh_seasondata
+  GROUP BY oshkosh_seasondata.season)
+as oshkoshtemps
+JOIN(
+  SELECT AVG(iowacity_seasondata.TempF) as Ave_Temp_IowaCity, iowacity_seasondata.season as season 
+  from(
+	SELECT 
+      CASE 
+        WHEN Month > 11 OR Month < 3 THEN 'Winter' 
+		WHEN Month > 2 AND Month < 6 THEN 'Spring'
+		WHEN Month > 5 AND Month < 9 THEN 'Summer'
+		WHEN Month > 8 AND Month < 12 THEN 'Fall'
+		ELSE 'NA'
+      END as season, TempF
+	FROM iowacitybasedata
+	where TempF is not null) 
+  as iowacity_seasondata
+  GROUP BY iowacity_seasondata.season)
+  as iowacitytemps
+  ON oshkoshtemps.season = iowacitytemps.season;

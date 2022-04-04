@@ -1,0 +1,630 @@
+---
+title: "Project_Part 3 - Executive Summary"
+author: "Mark Kuether"
+date: "April 28, 2020"
+output: word_document
+---
+## Section 1: Executive Summary
+
+### Predicting Loan Success using Statistical Models
+
+#### (Prepared for the Bank of Elbonia)
+     
+Based on data provided by the Bank of Elbonia, loss due to defaults represents an 89% reduction in potential profit from successfully repaid loans. This gap represents a large opportunity for improvement, and can be reduced by using a logistic statistical model for predicting loan success.
+
+__Findings__
+
+Using the test data provided by the Bank of Elbonia, we applied a logistic statistical model to predict successful and defaulted loans. With this application on the test data, we were able to see a profit increase of 163% over the current profit. This reduced the loss due to defaults from 89% to 72%.
+
+__Recommendations__
+
+We recommend the Bank of Elbonia use this model, optimized for profit, as an initial prediction model for their loan applications. While this will reduce the overall number of loans they accept, it should also reduce the number of loans that are likely to default. Default loans will still occur, but the profit from loans overall will increase.
+
+The Bank of Elbonia will also need to continue developing and adjusting models based on the steps reviewed in this report. Future models may test the inclusion of additional data not used in our model, or change due to changing economic health of its loan customer base.
+
+__Background__
+
+This model predicts whether a specific loan application would result in a successfully repaid loan. This is independent of the grading system used by the bank, so the grades were not used in this analysis. This allows the bank to use this model without dependency on the other grading system. 
+
+The model was developed with data provided by the Bank of Elbonia. Active loans were removed from the data since the objective was predicting the end status of the loans. The remaining data was classified into two categories between loans fully paid, and loans that were in default or charged off. Logistic models work with binary results, such as “Yes” vs “No”, by generating a probability that a specific case belongs to a desired category. The bank of Elbonia can use this to identify loans that are likely to default and deny those applications. The model can also be tuned for maximum profit by adjusting what probability level corresponds to the split between the two categories.
+
+
+## Section 2: Summary
+
+Based on the data in this data set, about 22% of loans default. This percentage of defaults resulted in a loss of 89% of potential profit for the bank. Reducing the percentage of defaulted loans is critical to ensure a bank remains competitive in a modern market. 
+
+The first task involved with reducing this percentage of defaults is understanding the underlying factors affecting the value. To this end, the bank collects a large number of details for each loan applicant and the details of each loan. The bank has provided a subset of that larger data set. This subset contains the key factors from their larger set of details, as well as the resulting status of the loans. We are using this subset of data to further refine which factors are key to predicting whether a loan applicant will repay or default on the loan. The result of the loan is reflected in the "Status" field, which is our response variable. 
+The initial data set contained 50,000 records with 32 variables.  Below is a summary of the steps used to prepare the data for analysis.
+
+```{r, initial_load, include=FALSE}
+#Load & Review Data
+raw_loan_data <- read.csv("loans50k.csv",header=TRUE)
+summary(raw_loan_data)
+str(raw_loan_data)
+
+```
+
+## Section 3: Preparing and cleaning the data
+
+__Removing Fields from Raw Data__
+
+The first step is to simplify the data where able. We start by removing any fields we feel certain would not contribute to the creation of our model. The following fields were removed from the initial data set:
+
+- The loan ID field is not necessary to predict loan performance and provides no information for this analysis. This field was dropped from the data set.
+
+- After reviewing the values of the summary data, the "delinq2yr", "inq6mth", and "pubRec" fields appeared to have mostly 0 or very low values.  A histogram was used to confirm this (see below). These fields were dropped from the data set.
+
+- The "employment" column contained 21401 levels. Breaking this into sub-categories effectively is not feasible for this analysis. This field was dropped from the data set.
+
+- The "payment" field is a direct calculation of the amount, term and rate. Since that field is redundant, it was removed from the data set.
+
+- The "grade" field is a loan health indicator based on the bank's own criteria. This may present a confounding variable for our analysis, and was removed from the data set. Removing this also allows the bank to remove or replace their grading algorithm without affecting this model. 
+
+Removing these fields reduced the number of variables in the dataset from 32 to 25.  
+
+```{r, removed_fields_hist, echo=FALSE, fig.width=6, fig.height=3}
+
+opar <- par(no.readonly=TRUE)
+par(mfrow=c(1,3), mar=c(4,4,4,4))
+
+#DETERMINE FIELDS TO DROP
+col_names <- colnames(raw_loan_data)
+#dropfields <- c("delinq2yr","inq6mth","pubRec","accOpen24")
+dropfields <- c("delinq2yr","inq6mth","pubRec")
+
+for (item in dropfields){
+  colpos <- which(col_names == item)
+  tempdata <- raw_loan_data[,colpos]
+  hist(tempdata,main=names(raw_loan_data[colpos]),xlab="Values",ylab="Frequency",breaks=max(raw_loan_data[colpos],na.rm=TRUE),col="blue")
+}
+
+par(opar)
+
+```
+
+```{r, drop_columns, include=FALSE}
+#These distributions seem to be mostly 0 or very low.
+#16=delinq2yr, 17=inq6mth, 19=pubRec
+#Employment has 21401 levels - too many for me to categorize.
+#Payment is a calcualted based on rate, term, and amount - collinear - drop.
+#Grade is based on Banks analysis. We wish to use separate anaysis
+
+drop_cols <- names(raw_loan_data) %in% c("loanID","grade","delinq2yr",
+"inq6mth","pubRec","employment","payment")
+working_data <- raw_loan_data[,!drop_cols]
+```
+
+__Recoding Categories__
+In order to analyze variables for predicting successful loans, the "status" field values were recoded.  Values of "Fully Paid" were recoded as "Good". Values of "Default" or "Charged Off" were recoded as "Bad".  Since we are only interested in predicting future loans based on previously successful or defaulted loans, all rows not containing "Good" or "Bad" were dropped from the data. This reduced the number of records from 50,000 to 34,655.
+
+After recoding and removing data, the data set was found to contain 27074 "Good" loans and 7581 "Bad" loans for a probability of success of 78%, and a probability of default to be 22%.
+
+The "reason" field has 11 categories which makes it difficult to analyze. These were reduced to the following categories:
+
+- Inv -> Expenditure which may improve value. These included "home_improvement", "house", "small_business" and "renewable_energy".
+
+- Debt -> Expenditure to cover debt. These included "credit_card" and "dept_consolidation".
+
+- Cons -> Expenditure on consumer good with no value added. This includes "car", "major purchase", and "vacation".
+
+- Life Exp. -> Single or Life event which may represent a single cost. This includes "medical", "moving", and "wedding"
+
+- Other -> This reflects the "other" category within the data set.
+
+The states were grouped by the regions defined by the Bureau of Economic Analysis (https://apps.bea.gov/regional/docs/regions.cfm).
+
+Inside the "verified" field, some records showed "Source Verified" which has the same meaning as "Verified". Those records were combined with the value of "Verified"
+
+The "length" field for the length of work was divided into segments of 0-4 years, 5-9 years, 10+ years. The fields containing NA were recoded as "Not Empl" and may either represent unemployed, retired, or temporary positions. This field was retained in the data set because it appeared to have a significant impact on the loan status.
+
+```{r, recode_categories, include=FALSE}
+#RECODING VALUES & Combining categories where needed
+#Recoding to facilitate further analysis
+working_data$status <- plyr::revalue(working_data$status,c("Fully Paid" = "Good","Charged Off" = "Bad","Default" = "Bad"))
+
+#Remove all rows except for Good and Bad
+working_data <- working_data[working_data$status %in% c("Good","Bad"),]
+
+#Source Verified = Verified
+working_data$verified <- plyr::revalue(working_data$verified,c("Source Verified" = "Verified"))
+
+#States into Economic Regions
+#Per https://apps.bea.gov/regional/docs/regions.cfm
+#New England
+working_data$state <- plyr::revalue(working_data$state,c("CT" = "NEW_ENG","ME" = "NEW_ENG","MA" = "NEW_ENG", "NH" = "NEW_ENG", "RI" = "NEW_ENG", "VT" = "NEW_ENG"))
+
+#Mid East
+working_data$state <- plyr::revalue(working_data$state,c("DE" = "MIDEAST","DC" = "MIDEAST","MD" = "MIDEAST","NY" = "MIDEAST","NJ" = "MIDEAST","PA" = "MIDEAST"))
+
+#Great Lakes
+working_data$state <- plyr::revalue(working_data$state,c("IL" = "GRT_LKS","IN" = "GRT_LKS","MI" = "GRT_LKS","OH" = "GRT_LKS","WI" = "GRT_LKS"))
+
+#Plains
+working_data$state <- plyr::revalue(working_data$state,c("IA" = "PLAINS","KS" = "PLAINS","MN" = "PLAINS","MO" = "PLAINS","NE" = "PLAINS","ND" = "PLAINS","SD" = "PLAINS"))
+
+#South East
+working_data$state <- plyr::revalue(working_data$state,c("AL" = "S_EAST","AR" = "S_EAST","FL" = "S_EAST","GA" = "S_EAST","KY" = "S_EAST","LA" = "S_EAST","MS" = "S_EAST","NC" = "S_EAST","SC" = "S_EAST","TN" = "S_EAST","VA" = "S_EAST","WV" = "S_EAST"))
+
+#South West
+working_data$state <- plyr::revalue(working_data$state,c("AZ" = "S_WEST","NM" = "S_WEST","OK" = "S_WEST","TX" = "S_WEST"))
+
+#Rocky Mountain
+working_data$state <- plyr::revalue(working_data$state,c("CO" = "RKY_MTN","ID" = "RKY_MTN","MT" = "RKY_MTN","UT" = "RKY_MTN","WY" = "RKY_MTN"))
+
+#Far West
+working_data$state <- plyr::revalue(working_data$state,c("AK" = "FAR_WEST","CA" = "FAR_WEST","HI" = "FAR_WEST","NV" = "FAR_WEST","OR" = "FAR_WEST","WA" = "FAR_WEST"))
+
+#Combine employment time
+#0-4 years
+working_data$length <- plyr::revalue(working_data$length,c("< 1 year" = "0-4 Years","1 year" = "0-4 Years","2 years" = "0-4 Years","3 years" = "0-4 Years","4 years" = "0-4 Years"))
+
+#5-9 years
+working_data$length <- plyr::revalue(working_data$length,c("5 years" = "5-9 Years","6 years" = "5-9 Years","7 years" = "5-9 Years","8 years" = "5-9 Years","9 years" = "5-9 Years"))
+
+#n/a
+working_data$length <- plyr::revalue(working_data$length,c("n/a" = "NOT EMP"))
+
+
+#REASON Consolidation.
+#Investment = expenditure can add value.
+working_data$reason <- plyr::revalue(working_data$reason,c("home_improvement" = "Inv","house" = "Inv","small_business" = "Inv", "renewable_energy" = "Inv"))
+
+#Debt = expenditure to replay debt
+working_data$reason <- plyr::revalue(working_data$reason,c("credit_card" = "Debt","debt_consolidation" = "Debt"))
+
+#Consumer = expenditure do not add value.
+working_data$reason <- plyr::revalue(working_data$reason,c("car" = "Cons","major_purchase" = "Cons","vacation" = "Cons"))
+
+#Life Exp = expenditure unavoidable, does not add value
+working_data$reason <- plyr::revalue(working_data$reason,c("medical" = "Life Exp.","moving" = "Life Exp.", "wedding" = "Life Exp."))
+
+#Other
+working_data$reason <- plyr::revalue(working_data$reason,c("other" = "Other"))
+
+
+```
+__Handling Missing Values__
+
+After recoding the categories, most missing data was found in the two fields of "bcRatio" and "bcOpen". Comparing these rows to other bc fields did not show a relationship to allow the values to be imputed. There was not enough information in the data set to determine the cause or meaning of the missing data. This meant that we could either avoid using these fields, or we could remove the records with the NA values. Our next step was to determine if removing these records would cause a change in the ratio of "Good" loans.
+
+
+```{r, rem_missing_values, include=FALSE}
+#MISSING VALUES
+#One record has many missing values and does not even have a loan amount
+working_data <- working_data[!is.na(working_data$amount),]
+
+#The bcRatio and bcOpen factors have a lot of NA's.  If we remove those,
+#would that drastically change the ratio of good to bad loans?
+loan_good = length(working_data$status[working_data$status=="Good"])
+loan_bad = length(working_data$status[working_data$status=="Bad"])
+raw_goodbad_p <- loan_good/(loan_good + loan_bad)
+
+nona_good <- length(working_data$status[working_data$status=="Good" & !(is.na(working_data$bcOpen))])
+nona_bad <- length(working_data$status[working_data$status=="Bad" & !(is.na(working_data$bcRatio))])
+nona_p <- nona_good/(nona_good + nona_bad)
+
+diff_nas <- abs(raw_goodbad_p - nona_p)
+#The proportion of good and bad loans is not drastically affected by removing this data.
+
+
+
+```
+
+The proportion of "Good" claims was calculated for the initial data set, which included records with missing values. The same proportion was calculated without the records containing those specific N/A values. The difference in the two proportions was calculated to be `r format(round(diff_nas,8),scientific=FALSE)`. Since removing these fields did not have an adverse effect on the overall proportion of "Good" claims, the records containing these missing values were removed. This reduced the data set from 34655 records to 34271.
+
+```{r, na_compare, fig.width=6,fig.height=4, echo=FALSE}
+if(TRUE){
+lb_p <- loan_bad/(loan_bad+loan_good)
+lg_p <- loan_good/(loan_bad+loan_good)
+nb_p <- nona_bad/(nona_bad+nona_good)
+ng_p <- nona_good/(nona_bad+nona_good)
+comparison_matrix <- matrix(c(lb_p,lg_p,nb_p,ng_p),nrow=2)
+barplot(comparison_matrix,names.arg=c("w/ NA's","wo/ NA's"), main="Loan Ratio Comparison",legend.text=c("Bad","Good"),col=c("red","green"),horiz=TRUE)
+}
+
+#Remove values
+working_data <- working_data[!(is.na(working_data$bcOpen)),]
+working_data <- working_data[!(is.na(working_data$bcRatio)),]
+```
+
+In addition to these, there was a single record found where most values, including the loan amount, were missing. This single record was removed with the other bcRatio and bcOpen records.
+
+
+## Section 4 - Exploring and Transforming the Data:
+
+Reviewing the data after this work showed that the categorical fields still contained formerly removed levels. In addition, all categorical fields contained an empty category, which may have been a byproduct of the import process. A script was run on all categorical fields in the data set to remove un-used categories.  This used the command "droplevels".
+
+The numerical fields were analyzed to see if they could benefit from transformations for further analysis. A script was run to graph the histogram and boxplot for all remaining numerical fields to visually check on the distribution.  The fields for "income", "totBal", "totRevLim", "totalLim", "totalRevBal", "totalBcLim", and "totalIlLim" were found to have a heavy right skew.
+
+Another script calculated the log, square root, cube root, and inverse values of these fields. The script then graphed all transformed distributions with a histogram and boxplot. These graphs showed which transformations produced a distribution that was less skewed. The "income", "totBal", "totalLim", "totalRevBal", "totalBcLim", and "totalIlLim" fields appeared to benefit most from a logrithmic transformation.  The "totalRevLIm" benefited from a square root transformation.
+
+A final script then transformed those fields as determined from the earlier analysis.
+
+```{r, drop_levels, include=FALSE}
+#TRANSFORMATIONS
+#Problem with import? - all factors include an empty category.
+#Remove levels removed earlier.
+#Factors: term, lenth, home,
+#verified, status, reason=, state
+
+col_names <- colnames(working_data)
+adjust_lvls <- c("term","length","home","verified",
+                 "status","reason","state")
+
+for (col in adjust_lvls){
+  colpos <- which(col_names==col)
+  working_data[,colpos] <- droplevels(working_data[colpos])
+}
+```
+```{r, distributions, include=FALSE, eval=FALSE}
+#Review distribution of numerical values
+#amount, income, rate, openAcc, revolRatio, totalAcc,
+#totalBal, totalRevLim, accOpen24, avgBal,
+#bcOpen, bcRatio, totalLim, totalRevBal, totalBcLim
+#totalIlLim
+graphs <- c("amount","income","rate","openAcc","revolRatio","totalAcc",
+            "totalBal","totalRevLim","accOpen24","avgBal","bcOpen",
+            "bcRatio","totalLim","totalRevBal","totalBcLim",
+            "totalIlLim")
+for (item in graphs){
+  colpos <- which(col_names==item)
+  tempdata <- working_data[,colpos]
+  hist(tempdata,main=names(working_data[colpos]),xlab="Values")
+  boxplot(tempdata,main=names(working_data[colpos]))
+}
+```
+```{r, test_skew_adj, include=FALSE, eval=FALSE}
+
+#income = 7,
+#Use same loop to test the following functions on distributions with high right skew
+testskew <- c("income", "totalBal", "totalRevLim", "totalLim", "totalRevBal", "totalBcLim","totalIlLim")
+for (item in testskew){
+  colpos <- which(col_names==item)
+  tempdata <- working_data[,colpos]
+  invdata <- 1/tempdata
+  logdata <- log(tempdata)
+  logtendata <- log10(tempdata)
+  sqrtdata <- sqrt(tempdata)
+  cuberoot <- tempdata^-3
+  titleinv <- paste("inv: ",names(working_data[colpos]))
+  titlelog <- paste("log: ",names(working_data[colpos]))
+  titlelogten <- paste("log_10: ",names(working_data[colpos]))
+  titlesqrt <- paste("sqrt: ",names(working_data[colpos]))
+  titlecube <- paste("cbrt: ",names(working_data[colpos]))
+  hist(invdata,main=titleinv)
+  boxplot(invdata,main=titleinv)
+  hist(logdata,main=titlelog)
+  boxplot(logdata,main=titlelog)
+  hist(logtendata,main=titlelogten)
+  boxplot(logtendata,main=titlelogten)
+  hist(sqrtdata,main=titlesqrt)
+  boxplot(sqrtdata,main=titlesqrt)
+  hist(cuberoot,main=titlecube)
+  boxplot(cuberoot,main=titlecube)
+  
+}
+```
+
+```{r, log_transformations, include=FALSE}
+
+#The following distribution benefited from a log transformation:
+#income, totalBal, totalRevLim, aveBal, bcOpen, totalLim, 
+#totalRebBal,totalBcLim, totalIlLim
+set_min <- c("income","totalBal","totalRevLim","aveBal","bcOpen",
+        "totalLim","totalRevBal","totalBcLim","totalIlLIm")
+
+for (item in set_min){
+  col_pos <- which(col_names==item)
+  thisdata <- working_data[,col_pos]
+  #Max values are much higher than 1.  Set 0 to 1 to avoid log errors.
+  working_data[,col_pos] <- replace(thisdata,thisdata==0,1)
+  working_data[,col_pos] <- log(working_data[,col_pos])
+}
+
+rm(thisdata)
+#The following field benefited from a sqrt transformation:
+working_data[,"accOpen24"] <- sqrt(working_data[,"accOpen24"])
+
+
+```
+
+
+
+__Data Analysis - Numerical Distributions:__
+
+The initial analysis involved side by side box plots on all numerical fields comparing the distributions between "Good" and "Bad" loans. A script graphed the plots for initial visual review. Because of the high number of outliers, boxplots were made without the outliers. Boxplots with the lower quartile, median, and upper quartile measures offset between "Good" and "Bad" loans were chosen as variables to consider for the equation. The distribution of "Good" vs "Bad" loans appeared to be affected by the following variables: "rate", "income", "debtIncRat", "openAcc", "totalRevLim", "accOpen24", "avgBal", "bcOpen", "totalLim", and "totalBcLim"
+
+```{r, show_num_dist, fig.height=4.5, fig.width=7, echo=FALSE, includ=FALSE}
+#Look at rate, income, DEPTINCRAT, openAcc, totalrevlim, 
+#accOpen24, avgBal, bcopen, totallim, totalbclim 
+col_names <- names(working_data)
+opar <- par(no.readonly=TRUE)
+par(mfrow=c(3,4), mar=c(2.5,3,2.5,2))
+if(TRUE){
+  testdist <- c("rate","income","debtIncRat",
+                "openAcc","totalRevLim","accOpen24",
+                "avgBal","bcOpen","totalLim","totalBcLim")
+
+    for (item in testdist){
+    colpos <- which(col_names==item)
+    goodplot <- working_data[working_data$status=="Good",colpos]
+    badplot <- working_data[working_data$status=="Bad",colpos]
+    plot_title <- paste(names(working_data[colpos]))
+    boxplot(goodplot, badplot, main=plot_title,names=c("Good","Bad"),
+            outline=FALSE,horizontal=TRUE)
+  }
+}#IF TRUE
+
+par <- opar
+
+```
+
+A similar procedure was performed with the categorical variables. Categories which showed an offset of the ratio between "Good" and "Bad" loans between specific categories were chosen as variables to consider for the equation. Reviews of these proportions showed that the following variables appeared to have an effect on the loan status: "term", "length", "verified", "reason", and "states".
+
+```{r, show_cat_dist, echo=FALSE, fig.width=7, fig.height=5}
+opar <- par(no.readonly=TRUE)
+par(mfrow=c(3,2), mar=c(2,2,2,2))
+
+if(TRUE){
+  testdist <- c("term","length","verified","reason","state")
+  for(item in testdist){
+    colpos <- which(col_names==item)
+    freq_tbl <- table(working_data$status,working_data[,colpos])
+    freq_tbl <- addmargins(freq_tbl)
+    freq_mtx <- matrix(c(0,0),nrow=2,ncol=1)
+    #Normalizing factors
+    for(tblcol in 1:(dim(freq_tbl)[2])-1){
+      p_bad <- freq_tbl[1,tblcol]/freq_tbl[3,tblcol]
+      p_good <- freq_tbl[2,tblcol]/freq_tbl[3,tblcol]
+      freq_mtx <- cbind(freq_mtx,c(p_bad,p_good))
+    }
+    freq_mtx <- freq_mtx[,-1]
+    plot_title <- paste(names(working_data[colpos]))
+
+    barplot(freq_mtx,beside=FALSE,
+            col=c("red","green"),names.arg=levels(working_data[,colpos]),
+            main=plot_title)
+    
+  }
+  plot(NULL ,xaxt='n',yaxt='n',bty='n',ylab='',xlab='', xlim=0:1, ylim=0:1)
+  legend("center", legend =c('"Good" Loans', '"Bad" Loans'), pch=15, pt.cex=4, cex=1.5, bty='o', col = c('green', 'red'))
+  mtext("Proportions", cex=1)
+}
+par <- opar
+
+```
+
+
+
+
+## Section 5: The Logistic Model
+
+
+```{r, drop_other_columns, include=FALSE}
+set.seed(10)
+smpl_size <- round(dim(working_data)[1]*.8,0)
+samples <- sample.int(dim(working_data)[1],size=smpl_size,replace=FALSE)
+
+raw_test_data <- working_data[samples,]
+raw_val_data <- working_data[-samples,]
+
+drop_cols <- names(raw_test_data) %in% c("totalPaid")
+test_data <- raw_test_data[,!drop_cols]
+drop_cols <- names(raw_test_data) %in% c("status")
+val_data <- raw_val_data[,!drop_cols]
+```
+
+```{r, generate_glm, include=FALSE}
+require(HH)
+
+#Test my personal model based on my analysis
+my_model <- glm(status~rate+income+debtIncRat+openAcc+totalRevLim+accOpen24+
+                    avgBal+bcOpen+totalLim+totalBcLim+term+length+verified+
+                    reason+state,data=test_data,family=binomial)
+my_AIC <- my_model$aic
+
+#Allow computer to find a model.
+min_model <- glm(status~1,data=test_data,family=binomial)
+max_model <- glm(status~.,data=test_data,family=binomial)
+max_step <- step(max_model,direction="backward",trace=0)
+min_step <- step(min_model,scope=list(lower=min_model,upper=max_model),
+                   direction="forward",trace=0)
+
+#Set models and compare AIC values
+max_fit <- glm(formula=formula(max_step),data=test_data,family=binomial)
+min_fit <- glm(formula=formula(min_step),data=test_data,family=binomial)
+maxfit_aic <- max_fit$aic
+minfit_aic <- min_fit$aic
+
+#Both AIC values are the same < my model aic.
+#Check VIF for collinearity of max model.
+vif(max_fit)
+```
+
+To create a logistic predictive model, we start by generating a model training data set, and a model testing data set. The data set was randomly divided with 80% forming the model training set, and 20% used as the model testing set. All results derived from the model reflect the model applied to the testing data set. 
+
+A logistic model was generated from the fields selected in the initial analysis, which resulted in an AIC score of `r format(round(my_AIC,0),scientific=FALSE,big.mark=",")`. We also generated models using both a forward and backward step wise analysis of all of the fields. This generated two models with the same AIC value of `r format(round(maxfit_aic,0),scientific=FALSE,big.mark=",")`. Since these models had a lower AIC value than ours, we decided to use these. With identical AIC values, we chose the one generated from the backward stepping analysis, which generated a formula of:
+
+
+```{r, print_formula, echo=FALSE}
+print(formula(max_step))
+
+```
+
+Since we transformed our data before generating this model, the actual relationships would be represented by:
+
+status ~ amount + term + rate + length + home + verified + reason + 
+state + debtIncRat + openAcc + revolRatio + totalAcc + sqrt(totalRevLim) + 
+accOpen24 + bcOpen + bcRatio + ln(totalLim) + ln(totalIlLim)
+
+Transforming the data prior to this step makes the formula (without ln or sqrt) easier to work with.
+
+
+```{r, calc_accuracy, echo=FALSE, include=TRUE}
+#Use predict to test model.
+#Rename variables for final 
+prediction <- predict(max_fit,newdata=val_data,type="response")
+pred_result <- ifelse(prediction<.5,"Bad","Good")
+pred_tbl <- table(raw_val_data$status,pred_result)
+#pred_tbl
+success <- pred_tbl["Bad","Bad"] + pred_tbl["Good","Good"]
+failure <- pred_tbl["Bad","Good"] + pred_tbl["Good","Bad"]
+total <- length(pred_result)
+pred_success = success/total
+pred_failure = failure/total
+
+t1_rate_50 <- pred_tbl["Good","Bad"]/sum(pred_tbl["Good",])
+t2_rate_50 <- pred_tbl["Bad","Good"]/sum(pred_tbl["Bad",])                                          
+
+
+```
+
+This logistic model was applied to the model testing data using the predict function. Using the functions default success cutoff probability of 0.50, the model accurately predicted `r round(pred_success*100,1)`% of the test cases from the test data. The accuracy of the prediction was calculated by comparing the sum of good and bad loans successfully predicted against the total number of loans in the test set.  The results are summarized by:
+
+```{r}
+pred_tbl
+```
+
+At this default cutoff probability level, the model prediction would result in a Type 1 error rate (incorrectly rejecting good loans) of `r round(t1_rate_50,3)`, and a Type 2 error rate (incorrectly accepting bad loans) of `r round(t2_rate_50,3)`.  Since the Type 2 errors are primarily responsible for reducing the banks profit earned from good loans, this represents an improvement of about `r round((1-t2_rate_50)*100,1)`% over not using the logistic model. 
+
+## Section 6: Optimizing the Threshold for Accuracy
+
+```{r, find_most_accurate, include=FALSE}
+#Test various threasholds to determine the max percentage
+#Graph results.
+
+#Use a DF instead of vector for accuracy. 
+#Contains threshold, T1 Rate, T2 Rate, Accuracy, Correct_predicted (success)
+#Used for both table and graph.
+
+accuracy_df <- data.frame(Threshold=0,Correct=0,Incorrect=0,Accuracy=0,T1_rate=0,T2_rate=0)
+#Ensure table is always 2X2 - Adds 4 items
+actual_status <- factor(c(as.character(raw_val_data$status),"Good","Good","Bad","Bad"))
+success_rate <- c(0)
+#How to create vector with vals .05 to .95?
+test_seq <- seq(.01,.99, by=.01)
+for(cutoff in test_seq){
+  pred_result <- ifelse(prediction<cutoff,"Bad","Good")
+  
+  #ensure table is always 2X2 - Adds 4 items
+  pred_result <- c(pred_result,"Good","Bad","Good","Bad")
+  pred_tbl <- table(actual_status,pred_result)
+
+  #Subtrack from each (total of 4) so numbers are correct.
+  success <- pred_tbl["Bad","Bad"] + pred_tbl["Good","Good"] - 2
+  failure <- pred_tbl["Bad","Good"] + pred_tbl["Good","Bad"] - 2
+  total <- length(pred_result)-4
+  pred_success_A = success/total
+  success_rate <- c(success_rate,pred_success_A)
+  
+  #For construction of summary table
+  if((cutoff*100) %% 10==0){
+    cat(cutoff," \n")
+    #calculate rates
+    T1_rate <- round(pred_tbl["Good","Bad"]/sum(pred_tbl["Good",]),3)
+    T2_rate <- round(pred_tbl["Bad","Good"]/sum(pred_tbl["Bad",]),3)
+    
+    #Add row to data frame.
+    accuracy_df[nrow(accuracy_df)+1,] <- list(cutoff,success,failure,round(pred_success_A,3),T1_rate,T2_rate)
+  }
+  
+}
+
+accuracy_df <- accuracy_df[-1,]
+ 
+success_rate <- success_rate[-1]
+max_success <- max(success_rate)
+max_item <- which(success_rate==max_success)
+max_cutoff <- round(max_item/100,2)
+
+```
+
+
+The model accuracy can be adjusted by changing the probability value used by the predict function to determine which loan applications are classified as "Good" and which are classified as "Bad". To find the value that corresponds to the highest model accuracy, we loop through probability values from .01 to .99. At each increment of .01, we generate a contingency table and calculate the accuracy at that point. These accuracy values are stored in a vector for graphing and analysis. 
+To find the probability corresponding to the maximum accuracy, we find the maximum value from the accuracy vector, and look up that value's position in the vector. Since we started at a probability of .01, and incremented by .01, the position in the vector is equal to the probability value * 100.
+
+This approach found a maximum model accuracy to be `r round(max_success,3)` at a cutoff probability value of `r max_cutoff`.  This is shown in the graph below by the red line.
+
+```{r, show_accuracy, echo=FALSE, width = 5, height = 4}
+plot(test_seq,success_rate,xlab="Probability Cutoff",ylab="Accuracy",
+     main="Accuracy vs Cutoff");abline(v=max_cutoff,col="Red",lwd=2)
+
+print.data.frame(accuracy_df[,c(1,2,3,4,5,6)],row.names=FALSE)
+#Use data frame with mod in row to display table at 10% intervals.
+```
+
+By reviewing the results of the different cutoff values, it's clear that over estimating the number of good loans, with a smaller cutoff probability, will not greatly change the level of accuracy. Since the overall percentage of good loans is at about 78%, the model accuracy will not decline below that as your cutoff decreases.
+
+Conversely, over estimating the number of bad loans, with a high cutoff probability, will affect the accuracy to a greater extent. In this case, the lower limit of the accuracy will match the number of bad loans at about 22%. This illustrates that setting the cutoff probability value closer to the value representing the greater population will yield a higher accuracy than the converse.
+
+## Section 7 - Optimizing for Profit
+
+```{r, find_most_profit, include=FALSE}
+val_data$profit <- val_data$totalPaid - val_data$amount
+current_profit <- sum(val_data$profit)
+profit_level <- c(0)
+
+raw_val_data$profit <- raw_val_data$totalPaid - raw_val_data$amount
+perfect_profit <- sum(raw_val_data$profit[raw_val_data$status=="Good"])
+
+for (cutoff in test_seq){
+    val_data$predicted <- ifelse(prediction<cutoff,"Bad","Good")
+    cutoff_amount <- sum(val_data$amount[val_data$predicted=="Good"])
+    cutoff_total <- sum(val_data$totalPaid[val_data$predicted=="Good"])
+    cutoff_profit <- cutoff_total-cutoff_amount
+    profit_level <- c(profit_level,cutoff_profit)
+}
+
+
+profit_level <- profit_level[-1]
+model_profit <- profit_level[50]
+max_profit <- max(profit_level)
+max_cutoff_P <- round(which(profit_level==max_profit)/100,2)
+max_profit_A <- success_rate[max_cutoff_P]
+
+good_bad_P <- ifelse(prediction<max_cutoff_P,"Bad","Good")
+good_bad_tbl <- table(raw_val_data$status,good_bad_P)
+good_good_P <- good_bad_tbl["Good","Good"] #Correct
+good_bad_P <- good_bad_tbl["Good","Bad"] #Incorrect
+bad_bad_P <- good_bad_tbl["Bad","Bad"] #Correct
+bad_good_P <- good_bad_tbl["Bad","Good"] #Incorrect
+
+```
+
+We define profit as (Total Repaid - Loan Amount). "Good" loans generate a profit, while "Bad" loans generate a loss. Using the model's predictions, we only calculate the profit for all loans predicted as "Good", since those predicted as "Bad" would be denied. By changing the cutoff proportion used by the predict function, we change the profitability of the model.
+
+To determine maximum profit, we use the same method as used to find the accuracy. Using this maximum profit level (shown below), we see what the model is capable of, and how much difference there is between our model and a "perfect" model with 100% accuracy.
+
+Original Bank Profit (before model, accuracy = 78%): __$`r format(current_profit,scientific=FALSE,big.mark=",")`__
+
+Profit allowed by model (cutoff = .5, accuracy = `r round(success_rate[50],3)*100`%): __$`r format(model_profit,scientific=FALSE,big.mark=",")`__
+
+Profit allowed by highest accuracy (cutoff = `r max_cutoff`, accuracy = `r round(success_rate[max_cutoff*100],3)*100`%): __$`r format(profit_level[max_cutoff*100],scientific=FALSE,big.mark=",")`__
+
+Maximum profit provided by the model (cutoff = `r max_cutoff_P`, accuracy = `r round(success_rate[max_cutoff_P*100],3)*100`%): __$`r format(max_profit,scientific=FALSE,big.mark=",")`__
+
+Perfect model (accuracy = 100%): __$`r format(perfect_profit,scientific=FALSE,big.mark=",")`__
+
+From this, we can see that the largest profit comes from a proportion level which allows more bad loans to be classified as "Good". However, this also allows in more actual good loans. Between the maximum accuracy at a cutoff proportion of `r max_cutoff` and this level, the increase in actual good loans offsets the loss by additional bad loans. Once the maximum profit level is reached, then the inclusion of more bad loans begins to reduce the profit generated by the inclusion of more good loans.
+
+```{r, show_profit, echo=FALSE, fig.width=6, fig.height=4}
+plot(test_seq,profit_level,main="Profit Analysis", ylab="Total Profit ($)",xlab="Probability Cutoff");abline(v=max_cutoff_P,col="Red",lwd=2);abline(h=current_profit,col="blue",lwd=2);abline(h=max_profit,col="Green",lwd=2);legend("bottomleft",pch=15, pt.cex = 1, bty="o", cex=1.0,legend=c("Current Profit Level","Maximum Profit","Maximum Profit Cutoff"),col=c("blue","green","red"))
+```
+
+
+## Section 8 - Summary
+
+Using our approach, we found a model which worked with the following variables to predict the binary status of each application:
+
+```{r, print_formula_2, echo=FALSE}
+print(formula(max_step))
+
+```
+
+
+We used this model, with the predict function to generate the probability that a certain loan application would result in a good or bad loan.  By adjusting a cutoff probability set in the predict function, we were able to affect the accuracy and profitability of the model.  With the large loss in profit due to bad loans, it is clear from these results that predicting even a small percentage of bad loans can result in significant increases in profit.
+
+By reviewing the different probability levels, and calculating the profit for each level, we found that setting the predict function to categorize loans at a probability of `r max_cutoff_P` maximized the profitability of the model.  This level increased the profits of the model testing data from $`r format(round(current_profit,0),scientific=FALSE,big.mark=",")` to $`r format(max_profit,scientific=FALSE,big.mark=",")` for an increase of `r round(((max_profit-current_profit)/current_profit)*100,1)`%. For the test data, this results in `r good_good_P` good loans correctly identified out of `r good_good_P+good_bad_P`, and `r bad_bad_P` bad loans correctly identified out of `r bad_bad_P+bad_good_P`.
+
+After using this model for a period of time, it's important to review the results and re-test the model on new data. Changes over time may warrant adjustments or even a new model to help maintain a higher profitability. We recommend studying the steps we've laid out and using them to continue testing the current and new models for predicting loan outcomes.
+

@@ -1,0 +1,53 @@
+/*
+c.	For Oshkosh, what 7 day period was the hottest? 
+By hottest I mean, the average temperature of all readings from 12:00:00am on day K to 11:59:59pm on day K+6. 
+For example, April 30th, 2006 to May 6th, 2006 is a 7 day period. 
+December 29, 2005 to January 4, 2006 is a 7 day period. 
+Look at all 7 day periods and determine which one is the hottest.
+*/
+
+//Define schema
+case class OshkoshWeather(
+Year: Integer,
+Month: Integer,
+Day: Integer,
+TimeCST: String,
+TemperatureF: String,
+`Dew PointF`: String,
+Humidity: String,
+`Sea Level PressureIN`: String,
+VisibilityMPH: String,
+`Wind Direction`: String,
+`Wind SpeedMPH`: String,
+`Gust SpeedMPH`: String,
+PrecipitationIn: String,
+Events: String,
+Conditions: String,
+WindDirDegrees: String)
+
+{
+//Load oshkosh weather data into a data set.
+import org.apache.spark.sql._
+val oshkosh_ds: Dataset[OshkoshWeather] = spark.sqlContext.read.option("header", "true").option("delimiter", ",").option("inferSchema", "true").csv("/user/maria_dev/final/Oshkosh/OshkoshWeather.csv").as[OshkoshWeather]
+
+//Reduce data set to needed components
+val oshkosh_raw = oshkosh_ds.select($"Year",$"Month",$"Day",$"TimeCST",$"TemperatureF").filter(!($"TemperatureF"==="-9999")).filter("TemperatureF is not null")
+val oshkosh_date = oshkosh_raw.withColumn("FullDate",concat($"Month",lit("/"),$"Day",lit("/"),$"Year")).drop("Year").drop("Month").drop("Day").drop("TimeCST")
+val oshkosh_stamp = oshkosh_date.withColumn("fullstamp",unix_timestamp($"FullDate", "MM/dd/yy"))
+
+//seconds in 1 day = 60 seconds/min * 60 min/hour * 24 hour/day - 
+//this takes you to the first second of the next day.
+val add_one_day = 60*60*24
+val add_six_days = one_day*6
+
+//Set Window and time periods
+import org.apache.spark.sql.expressions._
+val windowSpec = Window.orderBy("fullstamp").rangeBetween(0,add_six_days)
+val oshkosh_wk_ave = oshkosh_stamp.withColumn("average_temp", avg(oshkosh_stamp("TemperatureF")).over(windowSpec)).sort(col("average_temp").desc)
+val oshkosh_period = oshkosh_wk_ave.withColumn("start_date",to_date(from_unixtime($"fullstamp"))).withColumn("end_date",to_date(from_unixtime($"fullstamp"+add_six_days))).drop("FullDate").drop("fullstamp").drop("TemperatureF")
+
+//Convert to sql view and select top answer.
+oshkosh_period.createOrReplaceTempView("oshkosh_hottest")
+val hottest_week = spark.sqlContext.sql("SELECT distinct start_date, end_date, average_temp FROM oshkosh_hottest LIMIT 1")
+hottest_week.show(false)
+}

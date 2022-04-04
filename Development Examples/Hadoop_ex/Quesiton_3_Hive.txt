@@ -1,0 +1,33 @@
+DROP TABLE weather;
+DROP VIEW wdata;
+
+CREATE EXTERNAL TABLE IF NOT EXISTS
+weather(whole_line STRING)
+LOCATION 's3://noaa-isd-pds/data';
+
+CREATE VIEW wdata AS SELECT substring(whole_line,5,10) as rpt_station,
+substring(whole_line, 16,4) as rpt_year, substring(whole_line, 20,2) as rpt_month,
+substring(whole_line, 22,2) as rpt_day, substring(whole_line, 24,2) as rpt_hour,
+substring(whole_line, 29,6) as rpt_lat, substring(whole_line,35,6) as rpt_lon,
+substring(whole_line,42,5) as rpt_type, substring(whole_line,65,1) as rpt_wndtype,
+substring(whole_line,66,3) as rpt_wndspd, substring(whole_line,70,1) as rpt_wndqlt,
+substring(whole_line,71,4) as rpt_ciel,substring(whole_line,106) as rpt_adldata
+FROM weather;
+
+select rpt_year, avg(year_wind) as average_wind
+from(
+select rpt_station, rpt_year, sum(sum_wind) as year_wind
+from(
+select rpt_station, rpt_year, rpt_month, sum(sum_wind) as sum_wind
+from (
+Select rpt_station, rpt_year, rpt_month, rpt_day, sum(rpt_wndspd) as sum_wind
+FROM wdata
+WHERE (rpt_year > 1980) 
+  and (rpt_wndspd >= 4 and rpt_wndspd <= 25)
+  and (rpt_type = 'FM-12' OR rpt_type = 'FM-15')
+  and (rpt_wndqlt <= 1)
+GROUP BY rpt_station, rpt_year, rpt_month, rpt_day) as daysum
+group by rpt_station, rpt_year, rpt_month) as monthsum
+group by rpt_station, rpt_year) as station_yearsum
+group by rpt_year
+order by rpt_year;

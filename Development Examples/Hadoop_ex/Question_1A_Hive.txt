@@ -1,0 +1,34 @@
+DROP TABLE IF EXISTS oshkoshweather;
+DROP VIEW IF EXISTS oshkoshbasedata;
+
+CREATE EXTERNAL TABLE oshkoshweather (Year INT, Month INT, Day INT, TimeCST STRING, Temperaturef STRING, Dew_PointF STRING,
+Humidity STRING, Sea_Level_PressureIN STRING, VisibilityMPH STRING, Wind_Direction STRING, Wind_SpeedMPH STRING,
+Gust_SpeedMPH STRING, PrecipitationIn STRING, Events STRING, Conditions STRING, WindDirDegrees STRING) 
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+LOCATION '/user/maria_dev/final/Oshkosh';
+
+CREATE VIEW oshkoshbasedata AS 
+	SELECT concat(cast(year as string),'-', cast(month as string), '-', cast(day as string)) as datestring,
+	CAST(TemperatureF AS float) as TempF FROM OshkoshWeather
+	where TemperatureF IS NOT NULL
+	AND TemperatureF != '-9999';
+
+SELECT SUM(hotcolddays.cold_days) as cold_days, SUM(hotcolddays.hot_days) as hot_days
+FROM (
+  SELECT MAX(hotcold.coldest) cold_days, MAX(hotcold.hotest) hot_days, hotcold.datestring 
+  from(
+	SELECT 
+		CASE 
+			WHEN TempF <= -10.0
+			THEN 1 
+			ELSE 0
+		END as coldest,
+		CASE
+			WHEN TempF >= 95.0
+			THEN 1
+			ELSE 0
+		END as hotest, datestring
+		FROM oshkoshbasedata)
+  	as hotcold
+  	GROUP BY hotcold.datestring)
+as hotcolddays;

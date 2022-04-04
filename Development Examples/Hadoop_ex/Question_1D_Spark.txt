@@ -1,0 +1,66 @@
+/*
+d.	Solve this problem for Oshkosh only. 
+For each day in the input file (e.g. February 1, 2004, May 11, 2010, January 29, 2007), determine the coldest time for that day. 
+The coldest time for any given day is defined as the hour(s) that has/have the coldest average. 
+For example, a day may have had two readings during the 4am hour, one at 4:15am and one at 4:45am. 
+The temperatures may have been 10.5 and 15.3. 
+The average for 4am is 12.9. 
+The 5am hour for that day may have had two readings at 5:14am and 5:35am and those readings were 11.3 and 11.5. 
+The average for 5am is 11.4. 
+5am is thus considered colder. 
+
+If multiple hours have the same coldest average temperature on any given day, 
+then those hours that have the coldest average are all considered the coldest for that day. 
+Once you have determined the coldest hour for each day, return the hour that has the highest frequency. 
+This is not a windowing problem. 
+You only need to consider the 24 “hours” of the day, i.e. 12am, 1am, 2am, etc
+*/
+
+//Define schema
+case class OshkoshWeather(
+Year: Integer,
+Month: Integer,
+Day: Integer,
+TimeCST: String,
+TemperatureF: String,
+`Dew PointF`: String,
+Humidity: String,
+`Sea Level PressureIN`: String,
+VisibilityMPH: String,
+`Wind Direction`: String,
+`Wind SpeedMPH`: String,
+`Gust SpeedMPH`: String,
+PrecipitationIn: String,
+Events: String,
+Conditions: String,
+WindDirDegrees: String)
+
+//Load oshkosh weather data into a data set.
+import org.apache.spark.sql._
+val oshkosh_ds: Dataset[OshkoshWeather] = spark.sqlContext.read.option("header", "true").option("delimiter", ",").option("inferSchema", "true").csv("/user/maria_dev/final/Oshkosh/OshkoshWeather.csv").as[OshkoshWeather]
+
+//Reduce dataset and filter where needed
+val oshkosh_raw = oshkosh_ds.select($"Year",$"Month",$"Day",$"TimeCST",$"TemperatureF").filter(!($"TemperatureF"==="-9999")).filter("TemperatureF is not null")
+
+//Generate Columns needed for initial grouping.  Average temp over grouped date and hour.
+val oshkosh_date = oshkosh_raw.withColumn("FullDate",concat($"Month",lit("/"),$"Day",lit("/"),$"Year")).withColumn("FullDateHour",concat($"Month",lit("/"),$"Day",lit("/"),$"Year",lit(" "),substring_index($"TimeCST",":",1),substring_index($"TimeCST"," ",-1)))
+val ave_by_hour = oshkosh_date.drop("FullDate").groupBy("FullDateHour").agg(avg("TemperatureF").as("hourly_ave_temp")).withColumnRenamed("FullDateHour","FullDateHourGrouped")
+
+//Join with previous data to add dates.  Group by dates to find min values of dates.
+val oshkosh_hr_ave = oshkosh_date.join(ave_by_hour, oshkosh_date("FullDateHour") === ave_by_hour("FullDateHourGrouped")).drop("Year").drop("Month").drop("Day").drop("TimeCST").drop("TemperatureF").drop("FullDateHourGrouped")
+val minvals = oshkosh_hr_ave.groupBy("FullDate").agg(min("hourly_ave_temp").as("Daily_Min_Temp")).withColumnRenamed("FullDate","Day")
+
+//Rejoin agg with data to obtrain date + hour details.
+val minvalshour = minvals.join(oshkosh_hr_ave,minvals("Daily_Min_Temp") === oshkosh_hr_ave("hourly_ave_temp") && minvals("Day") === oshkosh_hr_ave("FullDate")).drop("Day").drop("FullDate").drop("hourly_ave_temp")
+
+//Group by 
+val daily_min_vals = minvalshour.select("FullDateHour","Daily_Min_Temp").sort("FullDateHour")
+daily_min_vals.show(30,false)
+
+//Find Highest frequency of mins.  (i.e. coldest for longest)
+
+//df1.join(df2, $"df1Key" === $"df2Key")
+//vii.	taxi_ds.groupBy("VendorID").agg(sum("total_amount")).show()
+//val oshkosh_stamp = oshkosh_date.withColumn("fullstamp",unix_timestamp($"FullDate", "MM/dd/yy"))
+//substring_index(str: Column, delim: String, count: Int): Column
+

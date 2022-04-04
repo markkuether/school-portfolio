@@ -1,0 +1,123 @@
+/*
+e.	Which city had a time period of 24 hours or less that saw the largest temperature difference? 
+
+*** Report the city, the temperature difference and the minimum amount of time it took to obtain that difference. ***
+
+Do not only consider whole days for this problem. 
+The largest temperature difference may have been from 3pm on a Tuesday to 3pm on a Wednesday. 
+The largest temperature difference could have been from 11:07am on a Tuesday to 4:03am on a Wednesday. 
+Or the largest difference could have been from 3:06pm on a Wednesday to 7:56pm on that same Wednesday. 
+
+For a concrete example, consider Iowa City on January 1, 2000 at 2:53pm through January 2, 2000 at 2:53pm. 
+The maximum temperature in that 24 hour span was 54 and the minimum temperature in that 24 hour span was 36. 
+Therefore, in that 24 hour span, the largest temperature difference was 18 degrees. 
+If this were the final answer, you would output 
+
+“Iowa City”, “18 degrees” and January 2, 2000 3:53am to January 2, 2000 10:53am.
+
+*/
+
+//Define schema
+case class OshkoshWeather(
+Year: Integer,
+Month: Integer,
+Day: Integer,
+TimeCST: String,
+TemperatureF: String,
+`Dew PointF`: String,
+Humidity: String,
+`Sea Level PressureIN`: String,
+VisibilityMPH: String,
+`Wind Direction`: String,
+`Wind SpeedMPH`: String,
+`Gust SpeedMPH`: String,
+PrecipitationIn: String,
+Events: String,
+Conditions: String,
+WindDirDegrees: String)
+
+case class IowaCityWeather(
+Year: Integer,
+Month: Integer,
+Day: Integer,
+TimeCST: String,
+TemperatureF: String,
+`Dew PointF`: String,
+Humidity: String,
+`Sea Level PressureIN`: String,
+VisibilityMPH: String,
+`Wind Direction`: String,
+`Wind SpeedMPH`: String,
+`Gust SpeedMPH`: String,
+PrecipitationIn: String,
+Events: String,
+Conditions: String,
+WindDirDegrees: String)
+
+{
+
+{
+//seconds in 1 day = 60 seconds/min * 60 min/hour * 24 hour/day - 
+//this takes you to the first second of the next 24 hour period.
+val add_one_day = 60*60*24
+val one_period = add_one_day-1
+
+//Load oshkosh weather data into a data set.
+import org.apache.spark.sql._
+val oshkosh_ds: Dataset[OshkoshWeather] = spark.sqlContext.read.option("header", "true").option("delimiter", ",").option("inferSchema", "true").csv("/user/maria_dev/final/Oshkosh/OshkoshWeather.csv").as[OshkoshWeather]
+
+//build date_time field, filter out invalid data. Add Unix Time Stamp for windowing.
+val oshkosh_raw = oshkosh_ds.select(concat($"Month",lit("/"),$"Day",lit("/"),$"Year",lit(" "),$"TimeCST").as("date_time"),$"TemperatureF").filter(!($"TemperatureF"==="-9999")).filter("TemperatureF is not null")
+val oshkosh_stamp = oshkosh_raw.withColumn("fullstamp",unix_timestamp($"date_time", "MM/dd/yy hh:mm a"))
+
+//Set Window and time periods. Calculate diff for each 24 hour period. Sort by difference descending
+import org.apache.spark.sql.expressions._
+val windowSpec_osh = Window.orderBy("fullstamp").rangeBetween(0,one_period)
+val oshkosh_period_diff = oshkosh_stamp.withColumn("temp_diff", max(oshkosh_stamp("TemperatureF")).over(windowSpec_osh)-min(oshkosh_stamp("TemperatureF")).over(windowSpec_osh)).sort(col("temp_diff").desc)
+
+//Access top row (largest diff).  Rename columns, add end date column.  
+val oshkosh_largest = oshkosh_period_diff.limit(1)
+val oshkosh_largest_merge = oshkosh_largest.withColumn("joinme",lit("1")).withColumnRenamed("temp_diff","temp_diff_oshkosh").withColumnRenamed("date_time","start_oshkosh")
+val oshkosh_largest_merge_dates = oshkosh_largest_merge.withColumn("end_oshkosh",from_unixtime(col("fullstamp")+one_period,"MM/dd/yyyy HH:mm a")).drop("TemperatureF").drop("fullstamp")
+
+//Reorder for output.
+val oshkosh_largest_diff = oshkosh_largest_merge_dates.select("start_oshkosh","end_oshkosh","temp_diff_oshkosh")
+oshkosh_largest_diff.show(false)
+
+//////////////////////////////////////////
+
+//Load iowacity weather data into a data set.
+val iowacity_ds: Dataset[IowaCityWeather] = spark.sqlContext.read.option("header", "true").option("delimiter", ",").option("inferSchema", "true").csv("/user/maria_dev/final/IowaCity/IowaCityWeather.csv").as[IowaCityWeather]
+
+//build date_time field, filter out invalid data. Add Unix Time Stamp for windowing.
+val iowacity_raw = iowacity_ds.select(concat($"Month",lit("/"),$"Day",lit("/"),$"Year",lit(" "),$"TimeCST").as("date_time"),$"TemperatureF").filter(!($"TemperatureF"==="-9999")).filter("TemperatureF is not null")
+val iowacity_stamp = iowacity_raw.withColumn("fullstamp",unix_timestamp($"date_time", "MM/dd/yy hh:mm a"))
+
+//Set Window and time periods. Calculate diff for each 24 hour period. Sort by difference descending
+import org.apache.spark.sql.expressions._
+val windowSpec_iowa = Window.orderBy("fullstamp").rangeBetween(0,one_period)
+val iowacity_period_diff = iowacity_stamp.withColumn("temp_diff", max(iowacity_stamp("TemperatureF")).over(windowSpec_iowa)-min(iowacity_stamp("TemperatureF")).over(windowSpec_iowa)).sort(col("temp_diff").desc)
+
+//Access top row (largest diff).  Rename columns, add end date column.  
+val iowacity_largest = iowacity_period_diff.limit(1)
+val iowacity_largest_merge = iowacity_largest.withColumn("joinme",lit("1")).withColumnRenamed("temp_diff","temp_diff_iowacity").withColumnRenamed("date_time","start_iowacity")
+val iowacity_largest_merge_dates = iowacity_largest_merge.withColumn("end_iowacity",from_unixtime(col("fullstamp")+one_period,"MM/dd/yyyy HH:mm a")).drop("TemperatureF").drop("fullstamp")
+
+//Reorder for output.
+val iowacity_largest_diff = iowacity_largest_merge_dates.select("start_iowacity","end_iowacity","temp_diff_iowacity")
+iowacity_largest_diff.show(false)
+
+//iowacity_largest_merge_dates.createOrReplaceTempView("iowacity_largest_diff")
+
+
+///////////////////////////////////////////
+
+//val big_diff = oshkosh_largest_merge_dates.join(iowacity_largest_merge_dates,"joinme")
+//big_diff.show(false)
+/*
+val largest_diff = spark.sqlContext.sql("SELECT oshkosh_largest_diff.start_oshkosh, oshkosh_largest_diff.end_oshkosh, oshkosh_largest_diff.temp_diff_oshkosh, iowacity_largest_diff.start_iowacity, iowacity_largest_diff.end_iowacity, iowacity_largest_diff.temp_diff_iowacity FROM oshkosh_largest_diff JOIN iowacity_largest_diff ON oshkosh_largest_diff.joinme = iowacity_largest_diff.joinme")
+largest_diff.show(false)
+
+largest_diff.show(false)
+*/
+}

@@ -1,0 +1,70 @@
+a. Which is more prevalent in Oshkosh - hot days or cold days.
+
+cold_days     hot_days
+35            14
+
+=============================
+
+b. What is the difference of the average temp per season?
+
+season     ave_temp_oshkosh     ave_temp_iowacity     temp_difference
+Fall       49.41                52.2                  -2.79
+Spring     44.77                50.21                 -5.44
+Summer     69.16                72.55                 -3.39
+Winter     22.86                25.05                 -2.19
+
+===============================
+
+c. What was the hottest 7 day period in Oshkosh?
+
++----------+----------+-----------------+
+|start_date|end_date  |average_temp     |
++----------+----------+-----------------+
+|2012-06-30|2012-07-06|81.76132596685085|
++----------+----------+-----------------+
+
+=================================
+
+d. Which hour is most frequently the coldest in Oshkosh?
+
++----+--------------+
+|hour|Hour_Frequency|
++----+--------------+
+|5AM |1729          |
++----+--------------+
+
+==================================
+
+e. Which city saw the largest temp diff in a 24 hour period?
+
++-----------------+-------------------+-----------------+
+|start_oshkosh    |end_oshkosh        |temp_diff_oshkosh|
++-----------------+-------------------+-----------------+
+|1/29/2008 6:53 AM|01/30/2008 06:52 AM|51.1             |
++-----------------+-------------------+-----------------+
++------------------+-------------------+------------------+
+|start_iowacity    |end_iowacity       |temp_diff_iowacity|
++------------------+-------------------+------------------+
+|12/14/2008 7:19 AM|12/15/2008 07:18 AM|56.2              |
++------------------+-------------------+------------------+
+
+================================
+
+f. Which city and which hour are best for running?
+
++-----+---------+---------+
+|month|Best_City|Best_Time|
++-----+---------+---------+
+|1    |Iowa City|2PM      |
+|2    |Iowa City|2PM      |
+|3    |Iowa City|2PM      |
+|4    |Iowa City|10PM     |
+|5    |Oshkosh  |5AM      |
+|6    |Oshkosh  |5AM      |
+|7    |Oshkosh  |5AM      |
+|8    |Oshkosh  |5AM      |
+|9    |Iowa City|5AM      |
+|10   |Oshkosh  |7PM      |
+|11   |Iowa City|1PM      |
+|12   |Iowa City|2PM      |
++-----+---------+---------+
